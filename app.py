@@ -282,17 +282,17 @@ def main():
 
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        # st.header("⚙️ Configuration")
         
-        # Check secrets first, then environment
-        default_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
+        # # Check secrets first, then environment
+        # default_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
         
-        # Allow user to override if needed, but mask it
-        api_key_input = st.text_input("OpenAI API Key", value=default_key, type="password")
-        if api_key_input: 
-            os.environ["OPENAI_API_KEY"] = api_key_input
+        # # Allow user to override if needed, but mask it
+        # api_key_input = st.text_input("OpenAI API Key", value=default_key, type="password")
+        # if api_key_input: 
+        #     os.environ["OPENAI_API_KEY"] = api_key_input
         
-        st.divider()
+        # st.divider()
         st.info("System Status")
         
         with st.spinner("Initializing Knowledge Graph..."):
