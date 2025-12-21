@@ -1,0 +1,6 @@
+streamlit
+networkx
+requests
+rank-bm25
+openai
+python-dotenv
