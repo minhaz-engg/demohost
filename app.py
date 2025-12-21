@@ -94,7 +94,7 @@ class ProductDoc:
         return f"{self.title} {self.brand} {self.category} {self.source}"
 
 # ----------------------------
-# 4. Utilities
+# 4. Utilities (FIXED PRICE PARSING)
 # ----------------------------
 
 class SmartTokenizer:
@@ -126,9 +126,22 @@ def infer_brand_robust(title: str, explicitly_tagged_brand: str = None) -> str:
     return "generic"
 
 def parse_price(price_str: str) -> float:
+    """
+    FIXED: Handles cases like '23,850৳ 26,500৳' by taking ONLY the first number.
+    """
     if not price_str: return 0.0
-    nums = re.findall(r'\d+', price_str.replace(',', ''))
-    return float("".join(nums)) if nums else 0.0
+    
+    # 1. Remove commas and currency symbols
+    clean_str = price_str.replace(',', '').replace('৳', '')
+    
+    # 2. Find separate number groups (e.g., '23850' and '26500')
+    nums = re.findall(r'\d+(?:\.\d+)?', clean_str)
+    
+    # 3. Return the FIRST number found (the current price)
+    if nums:
+        return float(nums[0])
+        
+    return 0.0
 
 # ----------------------------
 # 5. Data Ingestion
@@ -329,12 +342,10 @@ def main():
         context_str = ""
         context_display = []
         for i, doc in enumerate(results, 1):
-            # Clean context string for the LLM to read easily
             context_str += f"Item {i}: {{ Title: '{doc.title}', Brand: '{doc.brand}', Price: {doc.price_val}, Store: '{doc.source}', URL: '{doc.url}' }}\n"
             context_display.append(doc)
 
         with st.chat_message("assistant"):
-            # Display Raw Retrieval (Transparency)
             with st.expander(f"🔍 Retrieved {len(results)} items in {latency:.3f}s", expanded=False):
                 for doc in context_display:
                     color = "blue" if "daraz" in doc.source.lower() else "red"
@@ -348,7 +359,6 @@ def main():
                 stream_box = st.empty()
                 full_resp = ""
                 
-                # --- HIGH IQ PROMPT ENGINEERING ---
                 system_prompt = (
                     "You are Sigmoix-AI, a precision Procurement Analyst. "
                     "Your task is to compare product prices based STRICTLY on the provided Context. "
@@ -367,7 +377,6 @@ def main():
                     "- **Best Deal**: Clear verdict."
                 )
                 
-                # Explicitly separate Context from Question
                 user_message_content = (
                     f"### Context Data:\n{context_str}\n\n"
                     f"### User Question:\n{prompt}\n\n"
@@ -391,5 +400,6 @@ def main():
                     st.session_state.messages.append({"role": "assistant", "content": full_resp})
                 except Exception as e:
                     st.error(f"LLM Error: {e}")
+
 if __name__ == "__main__":
     main()
