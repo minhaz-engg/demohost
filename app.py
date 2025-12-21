@@ -282,17 +282,6 @@ def main():
 
     # Sidebar
     with st.sidebar:
-        # st.header("⚙️ Configuration")
-        
-        # # Check secrets first, then environment
-        # default_key = st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))
-        
-        # # Allow user to override if needed, but mask it
-        # api_key_input = st.text_input("OpenAI API Key", value=default_key, type="password")
-        # if api_key_input: 
-        #     os.environ["OPENAI_API_KEY"] = api_key_input
-        
-        # st.divider()
         st.info("System Status")
         
         with st.spinner("Initializing Knowledge Graph..."):
@@ -306,7 +295,6 @@ def main():
             st.stop()
 
         st.divider()
-        # RESET BUTTON: Clears chat history for the user
         if st.button("🗑️ Reset Conversation"):
             st.session_state.messages = []
             st.rerun()
@@ -335,16 +323,18 @@ def main():
 
         if not results:
             with st.chat_message("assistant"):
-                st.warning("No matching products found.")
+                st.warning("No matching products found in the database.")
             return
 
         context_str = ""
         context_display = []
         for i, doc in enumerate(results, 1):
-            context_str += f"[{i}] {doc.title} | Brand: {doc.brand} | Price: {doc.price_val} | Src: {doc.source}\nLink: {doc.url}\n\n"
+            # Clean context string for the LLM to read easily
+            context_str += f"Item {i}: {{ Title: '{doc.title}', Brand: '{doc.brand}', Price: {doc.price_val}, Store: '{doc.source}', URL: '{doc.url}' }}\n"
             context_display.append(doc)
 
         with st.chat_message("assistant"):
+            # Display Raw Retrieval (Transparency)
             with st.expander(f"🔍 Retrieved {len(results)} items in {latency:.3f}s", expanded=False):
                 for doc in context_display:
                     color = "blue" if "daraz" in doc.source.lower() else "red"
@@ -357,10 +347,31 @@ def main():
             else:
                 stream_box = st.empty()
                 full_resp = ""
+                
+                # --- HIGH IQ PROMPT ENGINEERING ---
                 system_prompt = (
-                    "You are OmniShop, a procurement assistant. "
-                    "Compare prices between Daraz and StarTech. Recommend the best value. "
-                    "Use Bangladesh Taka (৳)."
+                    "You are Sigmoix-AI, a precision Procurement Analyst. "
+                    "Your task is to compare product prices based STRICTLY on the provided Context. "
+                    
+                    "### GUIDELINES:\n"
+                    "1. **ZERO HALLUCINATION**: If the answer is not in the Context, state: 'Data not available in current index.' Do NOT make up prices or specs.\n"
+                    "2. **SOURCE TRUTH**: Trust the Context prices over your internal knowledge. Prices change; the Context is the only truth.\n"
+                    "3. **CITATION**: When mentioning a product, you MUST format it as a markdown link: [Product Title](URL).\n"
+                    "4. **COMPARISON**: If a product exists on both Daraz and StarTech, create a Markdown Table comparing them.\n"
+                    "5. **CURRENCY**: Use Bangladesh Taka (৳).\n"
+                    "6. **RECOMMENDATION**: Boldly highlight the best value option.\n\n"
+                    
+                    "Output Format:\n"
+                    "- **Analysis**: Brief summary of findings.\n"
+                    "- **Comparison Table**: (If applicable)\n"
+                    "- **Best Deal**: Clear verdict."
+                )
+                
+                # Explicitly separate Context from Question
+                user_message_content = (
+                    f"### Context Data:\n{context_str}\n\n"
+                    f"### User Question:\n{prompt}\n\n"
+                    "### Instruction:\nAnswer the question using ONLY the Context Data above."
                 )
                 
                 try:
@@ -368,7 +379,7 @@ def main():
                         model=DEFAULT_MODEL,
                         messages=[
                             {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Context:\n{context_str}\n\nQuery: {prompt}"}
+                            {"role": "user", "content": user_message_content}
                         ],
                         stream=True
                     )
@@ -380,6 +391,5 @@ def main():
                     st.session_state.messages.append({"role": "assistant", "content": full_resp})
                 except Exception as e:
                     st.error(f"LLM Error: {e}")
-
 if __name__ == "__main__":
     main()
