@@ -406,12 +406,7 @@
 
 
 # -*- coding: utf-8 -*-
-"""
-🛍️ MarketIntel: Enterprise E-Commerce Intelligence
-==================================================
-A Hybrid RAG solution for analyzing product data from Daraz & StarTech.
-Designed for Business Teams to retrieve pricing, specs, and market insights.
-"""
+!crawl4ai-setup
 
 import os
 import re
