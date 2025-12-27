@@ -1,6 +1,11 @@
 streamlit
-networkx
-requests
-rank-bm25
 openai
+crawl4ai
+networkx
+rank-bm25
+beautifulsoup4
+nest_asyncio
 python-dotenv
+numpy
+requests
+scikit-learn
