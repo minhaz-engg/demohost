@@ -1,5 +1,44 @@
-
 import os
+import subprocess
+import sys
+
+# ----------------------------------------------------------------
+# 🔧 AUTO-SETUP: High-IQ Deployment Fix for Streamlit Cloud
+# This replicates the 'crawl4ai-setup' command programmatically.
+# ----------------------------------------------------------------
+def ensure_browsers_installed():
+    """
+    Checks if the specific browser binary exists. If not, it runs the 
+    installation command. This is critical for Streamlit Cloud.
+    """
+    # We use a marker file to prevent re-running this on every app reload
+    marker_file = "crawl4ai_setup_complete.flag"
+    
+    if not os.path.exists(marker_file):
+        print("⚙️ Initiating First-Time Setup: Installing Browsers...")
+        try:
+            # 1. Install Playwright Browsers (The Core Engine)
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+            
+            # 2. Run crawl4ai specific setup if strictly needed (optional but safer)
+            # Note: The crawl4ai-setup command is a console script, so we call it via shell
+            subprocess.run(["crawl4ai-setup"], shell=True)
+            
+            # 3. Create the marker file so we don't do this again
+            with open(marker_file, "w") as f:
+                f.write("Setup Complete")
+                
+            print("✅ Browser Installation Complete.")
+        except Exception as e:
+            print(f"⚠️ Setup Warning: {e}")
+
+# EXECUTE SETUP BEFORE APP LOADS
+ensure_browsers_installed()
+# ----------------------------------------------------------------
+
+
+
+
 import re
 import json
 import asyncio
