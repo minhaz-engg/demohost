@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-🛍️ MarketIntel: Enterprise E-Commerce Intelligence
-==================================================
-A Hybrid RAG solution for analyzing product data from Daraz & StarTech.
-Designed for Business Teams to retrieve pricing, specs, and market insights.
-"""
 
 import os
 import re
@@ -12,8 +5,6 @@ import json
 import asyncio
 import hashlib
 import pickle
-import subprocess
-import sys
 import numpy as np
 import requests
 from dataclasses import dataclass, field
@@ -37,28 +28,6 @@ nest_asyncio.apply()
 load_dotenv()
 
 # ----------------------------
-# 0. HOSTING AUTO-SETUP (NEW)
-# ----------------------------
-@st.cache_resource
-def install_browsers():
-    """
-    Runs 'crawl4ai-setup' automatically on the server startup.
-    This installs the necessary Playwright browsers.
-    """
-    print("⚙️ Running automatic browser setup...")
-    try:
-        # Run the setup command
-        subprocess.run(["crawl4ai-setup"], check=True)
-        # Also ensure playwright browsers are installed just in case
-        subprocess.run(["playwright", "install", "chromium"], check=True)
-        print("✅ Browser setup complete.")
-    except Exception as e:
-        print(f"⚠️ Setup warning: {e}")
-
-# Trigger setup immediately
-install_browsers()
-
-# ----------------------------
 # 1. System Configuration
 # ----------------------------
 APP_TITLE = "🛍️ MarketIntel AI"
@@ -70,7 +39,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 DEFAULT_CORPUS_URL = "https://raw.githubusercontent.com/minhaz-engg/scrape-scheduler/refs/heads/main/out/combined_corpus.md"
 DEFAULT_MODEL = "gpt-4o-mini"
 EMBEDDING_MODEL = "text-embedding-3-small"
-TOP_K_RESULTS = 30  # High retrieval count for better filtering
+TOP_K_RESULTS = 70  # High retrieval count for better filtering
 
 # ----------------------------
 # 2. Data Structures
@@ -448,7 +417,7 @@ if "messages" not in st.session_state:
 
 # --- SIDEBAR: Control Panel ---
 with st.sidebar:
-    st.header("🟪 Intelligence Hub")
+    st.header("🎛️ Control Panel")
     
     tab1, tab2 = st.tabs(["📚 Knowledge Base", "🕸️ Live Scanner"])
     
@@ -540,7 +509,7 @@ if prompt := st.chat_input("Ex: 'Best gaming laptop under 100k' or 'Compare Redm
         with st.chat_message("assistant"): st.error(err_msg)
     else:
         with st.chat_message("assistant"):
-            # 1. Intent Recognition (Hidden from Business Users for cleanliness)
+            
             client = OpenAI()
             intent_prompt = (
                 "You are a Data Analyst Assistant. Extract filters from the user query.\n"
