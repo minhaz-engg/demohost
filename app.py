@@ -75,7 +75,7 @@ CACHE_DIR = "intel_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Default Configs
-DEFAULT_CORPUS_URL = "https://raw.githubusercontent.com/minhaz-engg/scrape-scheduler/refs/heads/main/out/combined_corpus.md"
+DEFAULT_CORPUS_URL = "https://raw.githubusercontent.com/minhaz-engg/ragapplications/refs/heads/main/refined_dataset/combined_corpus_fixed.md"
 DEFAULT_MODEL = "gpt-4o-mini"
 EMBEDDING_MODEL = "text-embedding-3-small"
 TOP_K_RESULTS = 70  # High retrieval count for better filtering
@@ -378,48 +378,6 @@ class HybridSearchEngine:
             content_hash = hashlib.md5("".join([p.doc_id for p in self.products]).encode()).hexdigest()
             with open(os.path.join(CACHE_DIR, f"emb_{content_hash}.pkl"), "wb") as f:
                 pickle.dump(self.corpus_embeddings, f)
-
-    # def search(self, query: str, filters: Dict, top_k: int = TOP_K_RESULTS) -> List[SearchResult]:
-    #     # 1. Hard Filtering (Metadata)
-    #     valid_indices = []
-    #     for i, p in enumerate(self.products):
-    #         # Price Logic
-    #         if filters.get('max_price') and p.price_value > filters['max_price']: continue
-    #         if filters.get('min_price') and p.price_value < filters['min_price']: continue
-    #         # Category Logic (Smart Fuzzy Match)
-    #         if filters.get('category'):
-    #             q_cat = filters['category'].lower()
-    #             p_cat = p.category.lower()
-    #             if q_cat not in p_cat and p_cat not in q_cat:
-    #                 # Exception for common synonyms
-    #                 if "laptop" in q_cat and ("macbook" in p_cat or "notebook" in p_cat): pass
-    #                 else: continue
-    #         valid_indices.append(i)
-
-    #     if not valid_indices: return []
-
-    #     # 2. Vector Search (Semantic)
-    #     q_emb = self.client.embeddings.create(input=query, model=EMBEDDING_MODEL).data[0].embedding
-    #     valid_embs = self.corpus_embeddings[valid_indices]
-    #     sem_scores = np.dot(valid_embs, np.array(q_emb))
-
-    #     # 3. Keyword Search (Exact Match)
-    #     q_tok = simple_tokenize(query)
-    #     bm25_full = self.bm25.get_scores(q_tok)
-    #     kw_scores = np.array([bm25_full[i] for i in valid_indices])
-
-    #     # 4. Score Fusion (70% Semantic, 30% Keyword)
-    #     def norm(arr):
-    #         if len(arr) == 0 or np.max(arr) == np.min(arr): return np.zeros_like(arr)
-    #         return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
-
-    #     final_scores = (0.7 * norm(sem_scores)) + (0.3 * norm(kw_scores))
-
-    #     results = []
-    #     for idx_in_valid, score in enumerate(final_scores):
-    #         results.append(SearchResult(self.products[valid_indices[idx_in_valid]], score))
-
-    #     return sorted(results, key=lambda x: x.score, reverse=True)[:top_k]
 
     def search(self, query: str, filters: Dict, top_k: int = TOP_K_RESULTS) -> List[SearchResult]:
         # 1. Hard Filtering (Metadata)
