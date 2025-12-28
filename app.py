@@ -379,21 +379,86 @@ class HybridSearchEngine:
             with open(os.path.join(CACHE_DIR, f"emb_{content_hash}.pkl"), "wb") as f:
                 pickle.dump(self.corpus_embeddings, f)
 
+    # def search(self, query: str, filters: Dict, top_k: int = TOP_K_RESULTS) -> List[SearchResult]:
+    #     # 1. Hard Filtering (Metadata)
+    #     valid_indices = []
+    #     for i, p in enumerate(self.products):
+    #         # Price Logic
+    #         if filters.get('max_price') and p.price_value > filters['max_price']: continue
+    #         if filters.get('min_price') and p.price_value < filters['min_price']: continue
+    #         # Category Logic (Smart Fuzzy Match)
+    #         if filters.get('category'):
+    #             q_cat = filters['category'].lower()
+    #             p_cat = p.category.lower()
+    #             if q_cat not in p_cat and p_cat not in q_cat:
+    #                 # Exception for common synonyms
+    #                 if "laptop" in q_cat and ("macbook" in p_cat or "notebook" in p_cat): pass
+    #                 else: continue
+    #         valid_indices.append(i)
+
+    #     if not valid_indices: return []
+
+    #     # 2. Vector Search (Semantic)
+    #     q_emb = self.client.embeddings.create(input=query, model=EMBEDDING_MODEL).data[0].embedding
+    #     valid_embs = self.corpus_embeddings[valid_indices]
+    #     sem_scores = np.dot(valid_embs, np.array(q_emb))
+
+    #     # 3. Keyword Search (Exact Match)
+    #     q_tok = simple_tokenize(query)
+    #     bm25_full = self.bm25.get_scores(q_tok)
+    #     kw_scores = np.array([bm25_full[i] for i in valid_indices])
+
+    #     # 4. Score Fusion (70% Semantic, 30% Keyword)
+    #     def norm(arr):
+    #         if len(arr) == 0 or np.max(arr) == np.min(arr): return np.zeros_like(arr)
+    #         return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
+
+    #     final_scores = (0.7 * norm(sem_scores)) + (0.3 * norm(kw_scores))
+
+    #     results = []
+    #     for idx_in_valid, score in enumerate(final_scores):
+    #         results.append(SearchResult(self.products[valid_indices[idx_in_valid]], score))
+
+    #     return sorted(results, key=lambda x: x.score, reverse=True)[:top_k]
+
     def search(self, query: str, filters: Dict, top_k: int = TOP_K_RESULTS) -> List[SearchResult]:
         # 1. Hard Filtering (Metadata)
         valid_indices = []
+        
+        # Pre-process query category if it exists for O(1) matching inside loop
+        q_cat_tokens = set()
+        if filters.get('category'):
+            # Logic: Lowercase -> Replace separators -> Split -> Remove trailing 's'/'es'
+            raw_q = filters['category'].lower().replace('-', ' ').replace('_', ' ')
+            q_cat_tokens = {w.rstrip('s') for w in raw_q.split() if len(w) > 2}
+
         for i, p in enumerate(self.products):
             # Price Logic
             if filters.get('max_price') and p.price_value > filters['max_price']: continue
             if filters.get('min_price') and p.price_value < filters['min_price']: continue
-            # Category Logic (Smart Fuzzy Match)
-            if filters.get('category'):
-                q_cat = filters['category'].lower()
-                p_cat = p.category.lower()
-                if q_cat not in p_cat and p_cat not in q_cat:
-                    # Exception for common synonyms
-                    if "laptop" in q_cat and ("macbook" in p_cat or "notebook" in p_cat): pass
-                    else: continue
+            
+            # --- HIGH-IQ CATEGORY MATCHING (The Fix) ---
+            if filters.get('category') and q_cat_tokens:
+                # 1. Normalize the Product Category same way as Query
+                p_raw = p.category.lower().replace('-', ' ').replace('_', ' ')
+                p_cat_tokens = {w.rstrip('s') for w in p_raw.split()}
+                
+                # 2. Set Intersection Logic
+                # If the Query is "Smart Watches" -> {smart, watche}
+                # If the Product is "smart-watch" -> {smart, watche}
+                # Intersection is non-empty = MATCH.
+                
+                # We require at least one significant token match to allow the pass
+                if not q_cat_tokens.intersection(p_cat_tokens):
+                    # Fallback: keep the laptop exception just in case
+                    q_str = filters['category'].lower()
+                    p_str = p.category.lower()
+                    if "laptop" in q_str and ("macbook" in p_str or "notebook" in p_str): 
+                        pass
+                    else: 
+                        continue
+            # -------------------------------------------
+
             valid_indices.append(i)
 
         if not valid_indices: return []
