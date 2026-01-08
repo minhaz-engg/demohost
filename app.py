@@ -3,31 +3,22 @@ import subprocess
 import sys
 
 # ----------------------------------------------------------------
-# 🔧 AUTO-SETUP: High-IQ Deployment Fix for Streamlit Cloud
-# This replicates the 'crawl4ai-setup' command programmatically.
+# 🔧 AUTO-SETUP: Fix for Streamlit Cloud
 # ----------------------------------------------------------------
 def ensure_browsers_installed():
     """
     Checks if the specific browser binary exists. If not, it runs the 
     installation command. This is critical for Streamlit Cloud.
     """
-    # We use a marker file to prevent re-running this on every app reload
     marker_file = "crawl4ai_setup_complete.flag"
     
     if not os.path.exists(marker_file):
         print("⚙️ Initiating First-Time Setup: Installing Browsers...")
         try:
-            # 1. Install Playwright Browsers (The Core Engine)
             subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-            
-            # 2. Run crawl4ai specific setup if strictly needed (optional but safer)
-            # Note: The crawl4ai-setup command is a console script, so we call it via shell
             subprocess.run(["crawl4ai-setup"], shell=True)
-            
-            # 3. Create the marker file so we don't do this again
             with open(marker_file, "w") as f:
                 f.write("Setup Complete")
-                
             print("✅ Browser Installation Complete.")
         except Exception as e:
             print(f"⚠️ Setup Warning: {e}")
@@ -35,9 +26,6 @@ def ensure_browsers_installed():
 # EXECUTE SETUP BEFORE APP LOADS
 ensure_browsers_installed()
 # ----------------------------------------------------------------
-
-
-
 
 import re
 import json
@@ -69,16 +57,15 @@ load_dotenv()
 # ----------------------------
 # 1. System Configuration
 # ----------------------------
-APP_TITLE = "🛍️ MarketIntel AI"
-APP_ICON = "📊"
+APP_TITLE = "🛍️ MarketIntel AI (Visual Mode)"
+APP_ICON = "🦅"
 CACHE_DIR = "intel_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Default Configs
 DEFAULT_CORPUS_URL = "https://raw.githubusercontent.com/minhaz-engg/ragapplications/refs/heads/main/refined_dataset/combined_corpus_fixed.md"
 DEFAULT_MODEL = "gpt-4o-mini"
 EMBEDDING_MODEL = "text-embedding-3-small"
-TOP_K_RESULTS = 70  # High retrieval count for better filtering
+TOP_K_RESULTS = 70 
 
 # ----------------------------
 # 2. Data Structures
@@ -91,6 +78,7 @@ class ProductDoc:
     category: str
     price_value: float
     url: Optional[str]
+    image_url: Optional[str]  # <--- ADDED THIS FIELD
     raw_md: str
     embedding: Optional[List[float]] = field(default=None)
 
@@ -105,48 +93,34 @@ class SearchResult:
 # ----------------------------
 
 def simple_tokenize(text: str) -> List[str]:
-    """
-    Business Logic: Normalizes product names for keyword search.
-    Handles plurals (e.g., 'Laptops' -> 'Laptop') to ensure matches.
-    """
     if not text: return []
     words = re.findall(r'\w+', text.lower())
-    # Remove 's' from end if word > 3 chars
     return [w[:-1] if (w.endswith('s') and len(w) > 3) else w for w in words]
 
 def parse_price(price_str: str) -> float:
-    """
-    Price Intelligence: Extracts accurate pricing from messy formats.
-    Fixes merged numbers (e.g., StarTech '1300015000' bug).
-    """
     if not price_str: return 0.0
-    
-    # Replace symbols with space to ensure separation
-    clean_str = re.sub(r'(৳|Tk\.?|BDT)', ' ', str(price_str), flags=re.IGNORECASE)
-    
-    # Extract all number groups (handling commas)
+    # Normalize: Remove currency symbols but keep separators
+    clean_str = re.sub(r'(৳|Tk\.?|BDT|Price:|Regular|Sale)', ' ', str(price_str), flags=re.IGNORECASE)
     matches = re.findall(r'[\d,]+(?:\.\d+)?', clean_str)
     
+    valid_prices = []
     for match in matches:
         clean_num = match.replace(',', '')
         try:
             val = float(clean_num)
-            # Filter out unrealistic low numbers (e.g., '1' year warranty)
-            if val > 100: 
-                return val
+            if 100 < val < 2000000: 
+                valid_prices.append(val)
         except: continue
-    return 0.0
+    
+    if not valid_prices: return 0.0
+    return min(valid_prices)
 
 def parse_corpus_text(raw_text: str, filter_source: str = "Both") -> List[ProductDoc]:
-    """
-    Parses the internal dataset with source filtering capabilities.
-    """
     docs = []
-    # Regex to capture individual product blocks
     pattern = re.compile(
         r"(##\s*(?P<title>.+?)\n"          
         r"\*\*DocID:\*\*\s*`(?P<id>[^`]+)`" 
-        r"(?P<content>[\s\S]+?))"           
+        r"(?P<content>[\s\S]+?))"            
         r"(?=\n##\s|\Z)", re.MULTILINE
     )
 
@@ -155,16 +129,12 @@ def parse_corpus_text(raw_text: str, filter_source: str = "Both") -> List[Produc
             full_block = match.group(1).strip()
             content = match.group("content")
             
-            # Extract Source
             src_m = re.search(r"\*\*Source:\*\*\s*(.+)", content)
             src = src_m.group(1).strip() if src_m else "Unknown"
 
-            # Apply Filter
-            if filter_source != "Both":
-                if filter_source.lower() not in src.lower():
-                    continue
+            if filter_source != "Both" and filter_source.lower() not in src.lower():
+                continue
 
-            # Extract Details
             title = match.group("title").strip()
             doc_id = match.group("id").strip()
             
@@ -173,11 +143,15 @@ def parse_corpus_text(raw_text: str, filter_source: str = "Both") -> List[Produc
             
             url_m = re.search(r"\*\*URL:\*\*\s*(.+)", content)
             url = url_m.group(1).strip() if url_m else "#"
+
+            # Try to find image in corpus if it exists (Optional fallback)
+            img_m = re.search(r"\*\*Image:\*\*\s*(.+)", content)
+            image_url = img_m.group(1).strip() if img_m else ""
             
             price_m = re.search(r"\*\*Price:\*\*\s*(.+)", content)
             price = parse_price(price_m.group(1)) if price_m else 0.0
 
-            docs.append(ProductDoc(doc_id, title, src, cat, price, url, full_block))
+            docs.append(ProductDoc(doc_id, title, src, cat, price, url, image_url, full_block))
         except: continue
     return docs
 
@@ -187,7 +161,7 @@ def parse_corpus_text(raw_text: str, filter_source: str = "Both") -> List[Produc
 
 async def crawl_category(url: str, source: str) -> List[ProductDoc]:
     """
-    Deep Scraper: Scrolls aggressively to fetch maximum product inventory.
+    Deep Scraper V2.1: Now extracts IMAGES.
     """
     # 1. Define Selectors based on Source
     if source == "StarTech":
@@ -196,7 +170,9 @@ async def crawl_category(url: str, source: str) -> List[ProductDoc]:
             "fields": [
                 {"name": "name", "selector": "h4.p-item-name a", "type": "text"},
                 {"name": "url", "selector": "h4.p-item-name a", "type": "attribute", "attribute": "href"},
-                {"name": "price", "selector": ".p-item-price", "type": "text"}
+                {"name": "price_text", "selector": ".p-item-price", "type": "text"},
+                # Capture Image Src
+                {"name": "image", "selector": ".p-item-img img", "type": "attribute", "attribute": "src"}
             ]
         }
         wait_for = "css:.p-item"
@@ -206,91 +182,106 @@ async def crawl_category(url: str, source: str) -> List[ProductDoc]:
             "fields": [
                 {"name": "name", "selector": "a[title]", "type": "attribute", "attribute": "title"},
                 {"name": "url", "selector": "a[href]", "type": "attribute", "attribute": "href"},
-                {"name": "price", "selector": "span:not([style])", "type": "text"}
+                {"name": "price_text", "selector": "span", "type": "text"},
+                # Capture Image Src
+                {"name": "image", "selector": "img", "type": "attribute", "attribute": "src"} 
             ]
         }
         wait_for = "css:body"
 
-    # 2. Configure Crawler
     config = CrawlerRunConfig(
         extraction_strategy=JsonCssExtractionStrategy(schema),
         cache_mode=CacheMode.BYPASS,
-        wait_for_images=False,
+        wait_for_images=True, # Force wait for images to load
         verbose=True
     )
 
-    # 3. Aggressive Scrolling Script (Fetches ~40-80 items per page)
+    # Scroll Script
     js_scroll = """
         let lastH = 0;
-        for(let i=0; i<20; i++) {
+        for(let i=0; i<15; i++) {
             window.scrollTo(0, document.body.scrollHeight);
-            await new Promise(r => setTimeout(r, 800));
-            // Slight scroll up to trigger viewport-based lazy loaders
-            window.scrollBy(0, -200); 
-            await new Promise(r => setTimeout(r, 400));
-            window.scrollTo(0, document.body.scrollHeight);
-            
-            if(document.body.scrollHeight === lastH && i > 5) break;
+            await new Promise(r => setTimeout(r, 1000));
+            if(document.body.scrollHeight === lastH && i > 3) break;
             lastH = document.body.scrollHeight;
         }
     """
 
-    # 4. Execute Scrape
     raw_items = []
     async with AsyncWebCrawler() as crawler:
         result = await crawler.arun(url=url, config=config, js_code=js_scroll, wait_for=wait_for)
         
         if result.success:
-            # Try Auto-Extract
+            # 1. Extraction Strategy Results
             try:
                 data = json.loads(result.extracted_content)
                 if isinstance(data, list): raw_items.extend(data)
                 elif isinstance(data, dict): raw_items.append(data)
             except: pass
             
-            # Robust Fallback (HTML Parsing)
+            # 2. BeautifulSoup Fallback
             if not raw_items and result.html:
                 soup = BeautifulSoup(result.html, 'html.parser')
+                
                 if source == "Daraz":
                     for card in soup.select("div[data-qa-locator='product-item']"):
                         try:
+                            img_tag = card.select_one("img")
+                            img_src = img_tag['src'] if img_tag else ""
                             raw_items.append({
                                 "name": card.select_one("a[title]")['title'],
                                 "url": card.select_one("a[href]")['href'],
-                                "price": card.select_one("span:not([style])").get_text(strip=True)
+                                "price_text": card.get_text(separator=" ", strip=True),
+                                "image": img_src
                             })
                         except: continue
+                        
                 elif source == "StarTech":
                     for card in soup.select(".p-item"):
                         try:
-                            # SAFE TEXT EXTRACTION (Separates "13,000" and "15,000" with space)
-                            price_txt = card.select_one(".p-item-price").get_text(separator=" ", strip=True)
+                            img_tag = card.select_one(".p-item-img img")
+                            img_src = img_tag['src'] if img_tag else ""
                             raw_items.append({
                                 "name": card.select_one("h4 a").get_text(strip=True),
                                 "url": card.select_one("h4 a")['href'],
-                                "price": price_txt
+                                "price_text": card.select_one(".p-item-price").get_text(separator=" ", strip=True),
+                                "image": img_src
                             })
                         except: continue
 
-    # 5. Normalize Data
+    # 5. Normalize Data & Calculate Prices
     docs = []
     cat_name = urlparse(url).path.split('/')[-1] or "Live-Session"
     
     for item in raw_items:
         title = item.get('name', 'Unknown')
         raw_url = item.get('url', '')
-        
-        # URL Correction
+        raw_img = item.get('image', '')
+
+        # URL Correction for Link
         if raw_url.startswith("//"): raw_url = "https:" + raw_url
         elif raw_url.startswith("/"):
              base = "https://www.startech.com.bd" if source == "StarTech" else "https://www.daraz.com.bd"
              raw_url = urljoin(base, raw_url)
         
-        price = parse_price(item.get('price', ''))
+        # URL Correction for Image (Sometimes they are relative)
+        if raw_img and raw_img.startswith("//"): raw_img = "https:" + raw_img
+        elif raw_img and raw_img.startswith("/"):
+             base = "https://www.startech.com.bd" if source == "StarTech" else "https://www.daraz.com.bd"
+             raw_img = urljoin(base, raw_img)
+
+        price_txt = item.get('price_text', '')
+        if not price_txt: price_txt = item.get('price', '')
+        
+        real_price = parse_price(price_txt)
+        
+        if real_price < 100: continue
+
         doc_id = f"{source}_{hashlib.md5(title.encode()).hexdigest()[:8]}"
         
-        raw_md = f"## {title}\n**DocID:** `{doc_id}`\n**Category:** {cat_name}\n**Price:** {price}\n**Source:** {source}\n**URL:** {raw_url}\n---"
-        docs.append(ProductDoc(doc_id, title, source, cat_name, price, raw_url, raw_md))
+        # Construct MD including Image info for LLM
+        raw_md = f"## {title}\n**DocID:** `{doc_id}`\n**Category:** {cat_name}\n**Price:** {real_price}\n**Image:** {raw_img}\n**Source:** {source}\n**URL:** {raw_url}\n---"
+        docs.append(ProductDoc(doc_id, title, source, cat_name, real_price, raw_url, raw_img, raw_md))
         
     return docs
 
@@ -299,10 +290,6 @@ async def crawl_category(url: str, source: str) -> List[ProductDoc]:
 # ----------------------------
 
 class HybridSearchEngine:
-    """
-    The Brain of the Application.
-    Combines Vector Search (Semantics) with BM25 (Keywords).
-    """
     def __init__(self, products: List[ProductDoc]):
         self.products = products
         self.client = OpenAI()
@@ -310,12 +297,9 @@ class HybridSearchEngine:
         self.corpus_embeddings = None
         self.categories: Set[str] = set()
         
-        # Initialization
         self.update_categories()
         self.rebuild_bm25()
         
-        # Intelligent Embedding Loading
-        # If dataset is small (Live Scrape), generate fresh. If large (Historical), check cache.
         if len(products) < 500:
              self.generate_embeddings_fresh(use_cache=False)
         else:
@@ -330,14 +314,12 @@ class HybridSearchEngine:
 
     def load_or_generate_embeddings(self):
         if not self.products: return
-        # Create signature of the dataset
         content_hash = hashlib.md5("".join([p.doc_id for p in self.products]).encode()).hexdigest()
         cache_path = os.path.join(CACHE_DIR, f"emb_{content_hash}.pkl")
 
         if os.path.exists(cache_path):
             with open(cache_path, "rb") as f:
                 self.corpus_embeddings = pickle.load(f)
-            # Map embeddings back to objects
             for i, p in enumerate(self.products):
                 if i < len(self.corpus_embeddings): p.embedding = self.corpus_embeddings[i]
         else:
@@ -354,14 +336,12 @@ class HybridSearchEngine:
         all_embs = []
         batch_size = 200
         
-        # Batch Processing
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i+batch_size]
             try:
                 resp = self.client.embeddings.create(input=batch, model=EMBEDDING_MODEL)
                 all_embs.extend([d.embedding for d in resp.data])
             except Exception as e: 
-                # Fail gracefully by adding zero vectors so indexes match
                 all_embs.extend([[0.0]*1536] * len(batch))
             
             if len(self.products) > 100:
@@ -380,58 +360,41 @@ class HybridSearchEngine:
                 pickle.dump(self.corpus_embeddings, f)
 
     def search(self, query: str, filters: Dict, top_k: int = TOP_K_RESULTS) -> List[SearchResult]:
-        # 1. Hard Filtering (Metadata)
         valid_indices = []
-        
-        # Pre-process query category if it exists for O(1) matching inside loop
         q_cat_tokens = set()
         if filters.get('category'):
-            # Logic: Lowercase -> Replace separators -> Split -> Remove trailing 's'/'es'
             raw_q = filters['category'].lower().replace('-', ' ').replace('_', ' ')
             q_cat_tokens = {w.rstrip('s') for w in raw_q.split() if len(w) > 2}
 
         for i, p in enumerate(self.products):
-            # Price Logic
             if filters.get('max_price') and p.price_value > filters['max_price']: continue
             if filters.get('min_price') and p.price_value < filters['min_price']: continue
             
-            # --- HIGH-IQ CATEGORY MATCHING (The Fix) ---
+            # Category Matching
             if filters.get('category') and q_cat_tokens:
-                # 1. Normalize the Product Category same way as Query
                 p_raw = p.category.lower().replace('-', ' ').replace('_', ' ')
                 p_cat_tokens = {w.rstrip('s') for w in p_raw.split()}
                 
-                # 2. Set Intersection Logic
-                # If the Query is "Smart Watches" -> {smart, watche}
-                # If the Product is "smart-watch" -> {smart, watche}
-                # Intersection is non-empty = MATCH.
-                
-                # We require at least one significant token match to allow the pass
                 if not q_cat_tokens.intersection(p_cat_tokens):
-                    # Fallback: keep the laptop exception just in case
                     q_str = filters['category'].lower()
                     p_str = p.category.lower()
                     if "laptop" in q_str and ("macbook" in p_str or "notebook" in p_str): 
                         pass
                     else: 
                         continue
-            # -------------------------------------------
-
+            
             valid_indices.append(i)
 
         if not valid_indices: return []
 
-        # 2. Vector Search (Semantic)
         q_emb = self.client.embeddings.create(input=query, model=EMBEDDING_MODEL).data[0].embedding
         valid_embs = self.corpus_embeddings[valid_indices]
         sem_scores = np.dot(valid_embs, np.array(q_emb))
 
-        # 3. Keyword Search (Exact Match)
         q_tok = simple_tokenize(query)
         bm25_full = self.bm25.get_scores(q_tok)
         kw_scores = np.array([bm25_full[i] for i in valid_indices])
 
-        # 4. Score Fusion (70% Semantic, 30% Keyword)
         def norm(arr):
             if len(arr) == 0 or np.max(arr) == np.min(arr): return np.zeros_like(arr)
             return (arr - np.min(arr)) / (np.max(arr) - np.min(arr))
@@ -455,7 +418,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling for Business Look
 st.markdown("""
 <style>
     .reportview-container { background: #f0f2f6; }
@@ -463,13 +425,14 @@ st.markdown("""
     h1 { color: #1f2937; }
     .stButton>button { width: 100%; border-radius: 5px; height: 3em; }
     .stChatInput { border-radius: 10px; }
+    /* Fix for small images in tables */
+    td img { max-width: 80px !important; border-radius: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title(f"{APP_ICON} {APP_TITLE}")
 st.caption("AI-Powered Market Research & Price Intelligence Tool")
 
-# --- Session Management ---
 if "engine" not in st.session_state: st.session_state.engine = None
 if "mode" not in st.session_state: st.session_state.mode = "Not Initialized"
 if "messages" not in st.session_state: 
@@ -477,7 +440,7 @@ if "messages" not in st.session_state:
         {"role": "assistant", "content": "👋 **Welcome!** Please select a data source from the sidebar to begin analyzing products."}
     ]
 
-# --- SIDEBAR: Control Panel ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("🎛️ Control Panel")
     
@@ -486,15 +449,8 @@ with st.sidebar:
     # TAB 1: Historical Data
     with tab1:
         st.write("Load pre-collected market data.")
-        url_in = st.text_input("Dataset URL", value=DEFAULT_CORPUS_URL, help="Link to the raw Markdown corpus.")
-        
-        st.write("**Source Preference:**")
-        source_pref = st.radio(
-            "Select Source",
-            ["Both", "Daraz", "StarTech"],
-            horizontal=True,
-            label_visibility="collapsed"
-        )
+        url_in = st.text_input("Dataset URL", value=DEFAULT_CORPUS_URL)
+        source_pref = st.radio("Select Source", ["Both", "Daraz", "StarTech"], horizontal=True)
         
         if st.button("Load Knowledge Base", type="primary"):
             if not os.getenv("OPENAI_API_KEY"):
@@ -511,8 +467,7 @@ with st.sidebar:
                                 st.session_state.engine = HybridSearchEngine(docs)
                                 st.session_state.mode = f"Knowledge Base ({source_pref})"
                                 st.success(f"✅ Ready! Indexed {len(docs)} items.")
-                                # Reset chat for new context
-                                st.session_state.messages = [{"role": "assistant", "content": f"✅ Loaded **{len(docs)}** products from {source_pref}. Ask me about prices, specs, or comparisons."}]
+                                st.session_state.messages = [{"role": "assistant", "content": f"✅ Loaded **{len(docs)}** products from {source_pref}. Data cleaning applied: Prices extracted carefully."}]
                         else: st.error("Failed to fetch dataset URL.")
                     except Exception as e: st.error(f"System Error: {e}")
 
@@ -528,19 +483,17 @@ with st.sidebar:
                 source = "StarTech" if "startech" in scrape_url.lower() else "Daraz"
                 with st.spinner(f"🕷️ Scanning {source} (Deep Scroll Mode)..."):
                     try:
-                        # Clear old engine to create a focused session
                         st.session_state.engine = None 
                         new_docs = asyncio.run(crawl_category(scrape_url, source))
                         
                         if new_docs:
                             st.session_state.engine = HybridSearchEngine(new_docs)
                             st.session_state.mode = f"Live Scan ({len(new_docs)} items)"
-                            st.success(f"✅ Scanned {len(new_docs)} items successfully.")
-                            st.session_state.messages = [{"role": "assistant", "content": f"✅ **Live Scan Complete.** I found {len(new_docs)} items from the link provided. You can now ask specific questions about these products."}]
+                            st.success(f"✅ Scanned {len(new_docs)} items.")
+                            st.session_state.messages = [{"role": "assistant", "content": f"✅ **Live Scan Complete.** I found {len(new_docs)} items with images."}]
                         else: st.warning("No items found. Please check the URL.")
                     except Exception as e: st.error(f"Scanning Error: {e}")
 
-    # --- System Status ---
     if st.session_state.engine:
         st.divider()
         st.markdown(f"**🟢 System Status:** Active")
@@ -550,31 +503,28 @@ with st.sidebar:
             st.write(st.session_state.engine.categories)
     else:
         st.divider()
-        st.markdown("**🔴 System Status:** Offline (Load Data first)")
+        st.markdown("**🔴 System Status:** Offline")
 
-# --- MAIN: Chat Interface ---
-
-# Display History
+# --- MAIN CHAT ---
 for m in st.session_state.messages:
-    with st.chat_message(m["role"]): st.markdown(m["content"])
+    # Use unsafe_allow_html to render the small images
+    with st.chat_message(m["role"]): st.markdown(m["content"], unsafe_allow_html=True)
 
-# Chat Input
-if prompt := st.chat_input("Ex: 'Best gaming laptop under 100k' or 'Compare Redmi and Realme prices'"):
-    # User Message
+if prompt := st.chat_input("Ask about prices, specs, or deals..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"): st.markdown(prompt)
 
-    # Logic
     if not st.session_state.engine:
         err_msg = "⚠️ **System Offline.** Please load the Knowledge Base or Scan a URL from the sidebar."
         st.session_state.messages.append({"role": "assistant", "content": err_msg})
         with st.chat_message("assistant"): st.error(err_msg)
     else:
         with st.chat_message("assistant"):
-            
             client = OpenAI()
+            
+            # 1. Intent Analysis
             intent_prompt = (
-                "You are a Data Analyst Assistant. Extract filters from the user query.\n"
+                "You are a Data Analyst. Extract filters from user query.\n"
                 "Return JSON: {\"query\": string, \"filters\": {\"max_price\": int, \"min_price\": int, \"category\": string}}\n"
                 f"User Query: {prompt}"
             )
@@ -595,25 +545,26 @@ if prompt := st.chat_input("Ex: 'Best gaming laptop under 100k' or 'Compare Redm
             results = st.session_state.engine.search(q_text, filters, top_k=TOP_K_RESULTS)
 
             if not results:
-                fail_msg = f"❌ No products matched your criteria in the current {st.session_state.mode}."
+                fail_msg = f"❌ No products matched criteria in {st.session_state.mode}."
                 st.warning(fail_msg)
                 st.session_state.messages.append({"role": "assistant", "content": fail_msg})
             else:
                 # 3. Report Generation
-                # Format context for the LLM
+                # We feed the IMAGE URL into the context
                 context_str = "\n".join([
-                    f"- {r.doc.title} | Price: ৳{r.doc.price_value:,.0f} | Source: {r.doc.source} | [Link]({r.doc.url})" 
+                    f"- {r.doc.title} | Price: {r.doc.price_value} BDT | ImageURL: {r.doc.image_url} | Link: {r.doc.url}" 
                     for r in results
                 ])
                 
                 system_instruction = (
-                    "You are a Senior Market Analyst. Provide a professional business response.\n"
-                    "1. **Executive Summary**: Recommend the top 3-5 options based on value and specs.\n"
-                    "2. **Pricing**: Always state price in Taka (৳).\n"
-                    "3. **Sourcing**: Mention if it's from StarTech or Daraz.\n"
-                    "4. **Formatting**: Use Markdown tables for comparisons if multiple items are discussed.\n"
-                    "5. **Links**: Ensure product names are clickable links using the provided [Link](url) format.\n"
-                    "6. Be concise, objective, and data-driven."
+                    "You are a Product Guide. \n"
+                    "RULES:\n"
+                    "1. Present products in a **Table** or List.\n"
+                    "2. **IMAGES:** For every product, you MUST display its image in a small size.\n"
+                    "   Use this HTML format exactly: <img src='IMAGE_URL' width='100' style='border-radius:5px;' />\n"
+                    "3. If ImageURL is empty or 'None', do not show an image tag.\n"
+                    "4. Columns: Image, Title, Price, Link.\n"
+                    "5. Keep it concise."
                 )
                 
                 user_prompt = f"User Question: {prompt}\n\nMarket Data:\n{context_str}"
@@ -633,7 +584,7 @@ if prompt := st.chat_input("Ex: 'Best gaming laptop under 100k' or 'Compare Redm
                 for chunk in stream:
                     content = chunk.choices[0].delta.content or ""
                     full_response += content
-                    response_placeholder.markdown(full_response + "▌")
+                    response_placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
                 
-                response_placeholder.markdown(full_response)
+                response_placeholder.markdown(full_response, unsafe_allow_html=True)
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
